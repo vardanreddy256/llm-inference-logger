@@ -1,13 +1,15 @@
 # LLM Inference Logging System
 
-A production-grade inference logging and ingestion system for LLM applications. Supports multi-turn chat with OpenAI, Anthropic, and Google Gemini, with real-time observability dashboards.
+A production-grade inference logging and ingestion system for LLM applications. Supports multi-turn chat with **OpenAI, Anthropic, Google Gemini, and Groq (free tier)**, with real-time observability dashboards.
+
+🚀 **Live Demo:** http://51.20.183.56:3000
 
 ---
 
 ## Quick Start (one command)
 
 ```bash
-cp .env.example .env        # add at least one API key
+cp .env.example .env        # add at least one API key (Groq is free at console.groq.com)
 docker compose up --build   # starts all 5 services
 ```
 
@@ -85,7 +87,7 @@ Stores each chat session. `session_id` is the stable public-facing identifier (U
 id          UUID PK
 session_id  VARCHAR UNIQUE  -- public-facing, stable
 title       VARCHAR         -- auto-set from first user message (80 chars)
-provider    VARCHAR         -- openai | anthropic | gemini
+provider    VARCHAR         -- openai | anthropic | gemini | groq
 model       VARCHAR         -- exact model string
 status      VARCHAR         -- active | cancelled | completed
 created_at  TIMESTAMPTZ
@@ -137,6 +139,7 @@ raw_metadata      JSONB
 
 | Decision | Chosen | Rejected | Reason |
 |---|---|---|---|
+| Provider choice | Groq as default | OpenAI / Anthropic | Groq is free tier with no credit card; ensures the demo works out of the box |
 | Event bus | Redis Streams | Kafka / RabbitMQ | Redis is already a common dependency; Streams give consumer groups + at-least-once without a separate broker |
 | Event publishing | `asyncio.create_task` (fire-and-forget) | Synchronous HTTP POST | Zero added latency to user response; acceptable if Redis is briefly unavailable |
 | PII redaction | Regex on preview only | Full message scan | Full scan adds latency; previews are the only thing logged to persistent storage |
@@ -178,6 +181,19 @@ The SDK wrapper captures metadata at the boundaries of the LLM call: start times
 - **Ingestion DB write fails**: Event remains unacknowledged in Redis Stream and will be retried on next poll. Idempotency is not currently enforced (could produce duplicate rows on retry — fixable with a unique index on `raw_metadata->>'event_id'`).
 - **LLM provider error**: Captured as `status=error` with `error_message` field. The user sees an error in the UI. The inference log is still published for observability.
 - **Frontend / backend disconnect**: SSE reconnects automatically (browser EventSource). Chat state is server-side; refreshing the page restores conversation history.
+
+---
+
+## Providers & API Keys
+
+| Provider | Free Tier | Get Key | Default Model |
+|---|---|---|---|
+| **Groq** | ✅ Yes (no card needed) | [console.groq.com](https://console.groq.com) | llama-3.3-70b-versatile |
+| OpenAI | ❌ Credits required | [platform.openai.com](https://platform.openai.com) | gpt-4.1 |
+| Anthropic | ❌ Credits required | [console.anthropic.com](https://console.anthropic.com) | claude-sonnet-4-5 |
+| Google Gemini | ⚠️ Limited free tier | [aistudio.google.com](https://aistudio.google.com) | gemini-2.0-flash |
+
+> **Tip:** Add only `GROQ_API_KEY` to get started immediately for free.
 
 ---
 
