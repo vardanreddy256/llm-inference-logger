@@ -5,6 +5,15 @@ import { streamChat, getMessages } from '../../api/client';
 import { Message, Conversation, Provider } from '../../types';
 import { Bot, AlertTriangle } from 'lucide-react';
 
+// Polyfill for generateId() — works in non-secure (HTTP) contexts
+function generateId(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 interface LocalMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -52,7 +61,7 @@ export const ChatInterface: React.FC<Props> = ({ conversation, provider, model, 
       return;
     }
     setError(null);
-    const userMsg: LocalMessage = { id: crypto.randomUUID(), role: 'user', content: text };
+    const userMsg: LocalMessage = { id: generateId(), role: 'user', content: text };
     setMessages(prev => [...prev, userMsg]);
     setStreamingContent('');
     setIsStreaming(true);
@@ -75,7 +84,7 @@ export const ChatInterface: React.FC<Props> = ({ conversation, provider, model, 
         setStreamingContent(prev => prev + delta);
       },
       onDone: (full) => {
-        setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: full }]);
+        setMessages(prev => [...prev, { id: generateId(), role: 'assistant', content: full }]);
         setStreamingContent('');
         setIsStreaming(false);
       },
@@ -92,7 +101,7 @@ export const ChatInterface: React.FC<Props> = ({ conversation, provider, model, 
   const handleStopStreaming = () => {
     abortRef.current?.abort();
     if (streamingContent) {
-      setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: streamingContent + ' [stopped]' }]);
+      setMessages(prev => [...prev, { id: generateId(), role: 'assistant', content: streamingContent + ' [stopped]' }]);
     }
     setStreamingContent('');
     setIsStreaming(false);
