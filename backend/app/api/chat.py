@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+import logging
 
 from app.database import get_db, AsyncSessionLocal
 from app.models import Conversation, Message
@@ -18,8 +19,9 @@ from app.sdk import LLMWrapper, DEFAULT_MODELS
 from app.sdk.providers import PROVIDER_MAP
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+logger = logging.getLogger(__name__)
 
-# Context window: keep last N message pairs to control token usage
+# Context window: keep last N messages to control token usage
 MAX_CONTEXT_MESSAGES = 20
 
 
@@ -88,19 +90,6 @@ async def _save_message(
     return msg
 
 
-async def _stream_sse(gen: AsyncIterator, session_id: str, model: str):
-    """Wrap stream chunks as Server-Sent Events."""
-    yield f"data: {json.dumps({'type': 'session', 'session_id': session_id, 'model': model})}\n\n"
-    full_content = []
-    async for chunk in gen:
-        if chunk.delta:
-            full_content.append(chunk.delta)
-            yield f"data: {json.dumps({'type': 'delta', 'content': chunk.delta})}\n\n"
-        if chunk.is_final:
-            yield f"data: {json.dumps({'type': 'done', 'content': ''.join(full_content)})}\n\n"
-    yield "data: [DONE]\n\n"
-
-
 @router.post("")
 async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)):
     if body.provider not in PROVIDER_MAP:
@@ -113,7 +102,7 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)):
     context = await _load_context(conv.id, db)
     context.append({"role": "user", "content": body.message})
 
-    # Count next sequence number
+    # Sequence number for new messages
     seq = len(context)
 
     # Save user message
@@ -124,42 +113,55 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)):
         conv.title = body.message[:80]
         await db.flush()
 
-    # Update conversation timestamp via model
-    conv.updated_at = datetime.datetime.utcnow()
-    await db.flush()
+    # Capture values as plain Python before committing — avoids detached-instance errors in the generator
+    conv_id: uuid.UUID = conv.id
+    conv_session_id: str = conv.session_id
+    user_msg_id: uuid.UUID = user_msg.id
+
     await db.commit()
 
     wrapper = LLMWrapper(body.provider)
 
     if body.stream:
         async def _stream_and_save():
-            full_content = []
-            gen = wrapper.stream_chat(
-                messages=context,
-                model=model,
-                conversation_id=str(conv.id),
-                message_id=str(user_msg.id),
-            )
-            yield f"data: {json.dumps({'type': 'session', 'session_id': conv.session_id, 'model': model})}\n\n"
-            async for chunk in gen:
-                if chunk.delta:
-                    full_content.append(chunk.delta)
-                    yield f"data: {json.dumps({'type': 'delta', 'content': chunk.delta})}\n\n"
-                if chunk.is_final:
-                    complete = "".join(full_content)
-                    # Persist assistant message in a fresh session (original db is closed after route handler returns)
-                    async with AsyncSessionLocal() as save_db:
-                        assistant_msg = Message(
-                            conversation_id=conv.id,
-                            role="assistant",
-                            content=complete,
-                            content_preview=complete[:500],
-                            sequence_number=seq + 1,
-                        )
-                        save_db.add(assistant_msg)
-                        await save_db.commit()
-                    yield f"data: {json.dumps({'type': 'done', 'content': complete})}\n\n"
-            yield "data: [DONE]\n\n"
+            full_content: list[str] = []
+            try:
+                yield f"data: {json.dumps({'type': 'session', 'session_id': conv_session_id, 'model': model})}\n\n"
+
+                async for chunk in wrapper.stream_chat(
+                    messages=context,
+                    model=model,
+                    conversation_id=str(conv_id),
+                    message_id=str(user_msg_id),
+                ):
+                    if chunk.delta:
+                        full_content.append(chunk.delta)
+                        yield f"data: {json.dumps({'type': 'delta', 'content': chunk.delta})}\n\n"
+
+                # Stream finished — persist the assistant message
+                complete = "".join(full_content)
+                if complete:
+                    try:
+                        async with AsyncSessionLocal() as save_db:
+                            assistant_msg = Message(
+                                conversation_id=conv_id,
+                                role="assistant",
+                                content=complete,
+                                content_preview=complete[:500],
+                                sequence_number=seq + 1,
+                            )
+                            save_db.add(assistant_msg)
+                            await save_db.commit()
+                    except Exception as db_err:
+                        logger.error("Failed to save assistant message: %s", db_err)
+
+                yield f"data: {json.dumps({'type': 'done', 'content': complete})}\n\n"
+
+            except Exception as exc:
+                logger.error("Streaming error for session %s: %s", conv_session_id, exc)
+                yield f"data: {json.dumps({'type': 'error', 'content': str(exc)})}\n\n"
+            finally:
+                yield "data: [DONE]\n\n"
 
         return StreamingResponse(
             _stream_and_save(),
@@ -168,20 +170,23 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)):
                 "Cache-Control": "no-cache",
                 "X-Accel-Buffering": "no",
                 "Access-Control-Allow-Origin": "*",
+                "Connection": "keep-alive",
             },
         )
     else:
         response = await wrapper.chat(
             messages=context,
             model=model,
-            conversation_id=str(conv.id),
-            message_id=str(user_msg.id),
+            conversation_id=str(conv_id),
+            message_id=str(user_msg_id),
         )
         # Save assistant message
-        await _save_message(conv.id, "assistant", response.content, seq + 1, db)
-        await db.commit()
+        async with AsyncSessionLocal() as save_db:
+            await _save_message(conv_id, "assistant", response.content, seq + 1, save_db)
+            await save_db.commit()
+
         return {
-            "session_id": conv.session_id,
+            "session_id": conv_session_id,
             "model": model,
             "provider": body.provider,
             "content": response.content,

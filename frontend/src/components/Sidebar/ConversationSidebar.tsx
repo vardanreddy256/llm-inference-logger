@@ -4,9 +4,10 @@ import { Conversation, Provider } from '../../types';
 import { Plus, MessageSquare, XCircle, Play, Loader2, ChevronDown } from 'lucide-react';
 
 const PROVIDERS: { name: Provider; label: string; color: string }[] = [
+  { name: 'groq', label: 'Groq Llama 3.3 (Free)', color: 'bg-orange-100 text-orange-700' },
   { name: 'openai', label: 'OpenAI GPT-4.1', color: 'bg-green-100 text-green-700' },
   { name: 'anthropic', label: 'Claude Sonnet', color: 'bg-purple-100 text-purple-700' },
-  { name: 'gemini', label: 'Gemini Flash', color: 'bg-blue-100 text-blue-700' },
+  { name: 'gemini', label: 'Gemini 2.0 Flash', color: 'bg-blue-100 text-blue-700' },
 ];
 
 interface Props {

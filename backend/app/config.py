@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
+    groq_api_key: Optional[str] = None
 
     # Ingestion service
     ingestion_service_url: str = "http://ingestion-service:8001"

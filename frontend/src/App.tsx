@@ -11,7 +11,8 @@ type View = 'chat' | 'dashboard';
 const DEFAULT_MODELS: Record<Provider, string> = {
   openai: 'gpt-4.1',
   anthropic: 'claude-sonnet-4-5',
-  gemini: 'gemini-1.5-flash',
+  gemini: 'gemini-2.0-flash',
+  groq: 'llama-3.3-70b-versatile',
 };
 
 export default function App() {

@@ -111,7 +111,10 @@ class LLMWrapper:
                 request_id=response.request_id if response else None,
                 timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             )
-            asyncio.create_task(self._publish_event(event))
+            try:
+                asyncio.get_event_loop().create_task(self._publish_event(event))
+            except Exception:
+                pass
 
     async def stream_chat(
         self,
@@ -143,7 +146,9 @@ class LLMWrapper:
         except Exception as exc:
             status = "error"
             error_msg = str(exc)
-            raise
+            logger.error("LLM provider stream error (%s): %s", self.provider_name, exc)
+            # Yield an error delta so the UI shows something meaningful instead of hanging
+            yield StreamChunk(delta=f"\n\n⚠️ Provider error: {exc}", is_final=True)
         finally:
             latency_ms = (time.monotonic() - start) * 1000
             user_input = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
@@ -165,4 +170,8 @@ class LLMWrapper:
                 request_id=final_chunk.request_id if final_chunk else None,
                 timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             )
-            asyncio.create_task(self._publish_event(event))
+            # Safe fire-and-forget — wrap in try/except so logging never breaks the stream
+            try:
+                asyncio.get_event_loop().create_task(self._publish_event(event))
+            except Exception:
+                pass

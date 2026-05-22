@@ -1,4 +1,4 @@
-export type Provider = 'openai' | 'anthropic' | 'gemini';
+export type Provider = 'openai' | 'anthropic' | 'gemini' | 'groq';
 
 export interface Conversation {
   id: string;

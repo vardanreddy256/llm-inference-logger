@@ -27,7 +27,7 @@ class GeminiProvider(BaseLLMProvider):
             history = history[:-1]
         return history, last_user
 
-    async def chat(self, messages: list[dict], model: str = "gemini-1.5-flash", max_tokens: int = 2048, temperature: float = 0.7) -> LLMResponse:
+    async def chat(self, messages: list[dict], model: str = "gemini-2.0-flash", max_tokens: int = 2048, temperature: float = 0.7) -> LLMResponse:
         import asyncio
         history, last_user = self._build_history(messages)
         gen_model = self._genai.GenerativeModel(model)
@@ -48,7 +48,7 @@ class GeminiProvider(BaseLLMProvider):
             raw_response={},
         )
 
-    async def stream_chat(self, messages: list[dict], model: str = "gemini-1.5-flash", max_tokens: int = 2048, temperature: float = 0.7) -> AsyncIterator[StreamChunk]:
+    async def stream_chat(self, messages: list[dict], model: str = "gemini-2.0-flash", max_tokens: int = 2048, temperature: float = 0.7) -> AsyncIterator[StreamChunk]:
         import asyncio
         history, last_user = self._build_history(messages)
         gen_model = self._genai.GenerativeModel(model)
